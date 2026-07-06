@@ -1,4 +1,4 @@
-const TelegramBot = require('node-telegram-bot-api');
+const { TelegramBot } = require('node-telegram-bot-api');
 
 const MAX_HISTORY = 16;
 const TELEGRAM_MSG_LIMIT = 4000;
