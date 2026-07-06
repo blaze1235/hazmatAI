@@ -1,37 +1,53 @@
 # PlacardBot
 
-AI HAZMAT compliance assistant for trucking dispatchers and drivers. Upload a
+HAZMAT compliance assistant for trucking dispatchers and drivers. Upload a
 Bill of Lading (BOL) photo or PDF and PlacardBot extracts the hazardous
 materials data and tells you exactly which DOT placards (49 CFR Part 172,
-Subpart F) are required. Available as a web chat app and, optionally, a
-Telegram bot — both share the same Google Gemini-powered analysis backend
-(free tier) and log every analysis to Postgres for the admin panel.
+Subpart F) are required.
+
+**No AI, no API keys, no per-request cost.** Everything runs locally on the
+server:
+
+- **Digital PDFs** — text is read straight from the PDF's text layer (pdfjs)
+- **Photos & scanned PDFs** — OCR via [tesseract.js](https://tesseract.projectnaptha.com/)
+- **Parsing** — UN/NA numbers, hazard classes, packing groups, weights,
+  LTD QTY / inhalation-hazard flags, plus a built-in lookup table of ~80
+  common UN numbers for when the class isn't printed on the document
+- **Placarding** — a deterministic rules engine implementing 49 CFR 172.504
+  Tables 1 & 2: any-quantity Table 1 materials, the 1,001-lb aggregate
+  threshold, the DANGEROUS placard mixed-load option (with the 2,205-lb
+  single-category exception), bulk/cargo-tank UN number marking, limited
+  quantity exceptions, and the domestic Class 9 exception
+
+Available as a web chat app and, optionally, a Telegram bot — both share the
+same analysis engine and log every analysis to Postgres for the admin panel.
+
+You can also just type a shipment instead of uploading anything, e.g.
+`UN1203 gasoline, 8500 lbs`.
 
 ## Local development
 
 ```bash
 npm install
-export GOOGLE_API_KEY=<your-google-api-key>
 npm start
 ```
 
-Then open http://localhost:3000.
+Then open http://localhost:3000. That's it — no API key needed.
 
-To also run the Telegram bot locally, additionally set
-`TELEGRAM_BOT_TOKEN` before `npm start` (get a token from
-[@BotFather](https://t.me/BotFather)).
+On the first OCR request the server downloads the Tesseract English language
+data (~11 MB, cached in `.tessdata/`); after that it works offline.
+
+To also run the Telegram bot locally, set `TELEGRAM_BOT_TOKEN` before
+`npm start` (get a token from [@BotFather](https://t.me/BotFather)).
 
 To persist analyses and use the admin panel locally, set `DATABASE_URL`
 to a Postgres connection string, plus `ADMIN_USERNAME`/`ADMIN_PASSWORD`,
 then visit http://localhost:3000/admin.
 
-Get a free Google API key from https://aistudio.google.com/apikey.
-
 ## Environment variables
 
 | Variable             | Required | Description                                                          |
 |----------------------|----------|-----------------------------------------------------------------------|
-| `GOOGLE_API_KEY`     | Yes      | Free Google Gemini API key from https://aistudio.google.com/apikey    |
 | `TELEGRAM_BOT_TOKEN` | No       | Enables the Telegram bot interface (polling mode) if set               |
 | `DATABASE_URL`       | No       | Postgres connection string; enables analysis logging + admin panel     |
 | `ADMIN_USERNAME`     | No       | Username for HTTP Basic Auth on `/admin`                               |
@@ -50,42 +66,34 @@ panel returns 503 rather than exposing data.
 ## File support
 
 Both the web app and Telegram bot accept photos (JPEG/PNG/WebP/etc.) and
-PDFs. PDFs are rendered page-by-page (up to 3 pages) into images before
-being sent to Gemini's vision model, so scanned BOLs work the same as
-photographed ones.
+PDFs. Digital PDFs use the embedded text layer directly (fast, exact);
+scanned PDFs are rendered page-by-page (up to 3 pages) and OCR'd, same as
+photos.
+
+**OCR quality matters**: sharp, well-lit, straight-on photos of the hazmat
+description section parse best. The report flags when OCR was used so you
+know to double-check the extracted UN numbers and weights.
 
 ## Deploying to Railway
 
 This repo includes `railway.json` (Nixpacks build, `node server.js` start
-command). To deploy via the Railway dashboard (recommended, no CLI/token
-needed):
+command). To deploy via the Railway dashboard:
 
 1. In Railway, create a **New Project → Deploy from GitHub repo** and select
    this repository / branch (`claude/placardbot-hazmat-assistant-503trs`).
    Railway will auto-deploy on every push to that branch.
-2. Add a **PostgreSQL** plugin to the project (New → Database → PostgreSQL).
-   Railway automatically injects `DATABASE_URL` into your service — no
-   manual wiring needed.
-3. In the service's **Variables** tab, set `GOOGLE_API_KEY` (required; get a
-   free one from https://aistudio.google.com/apikey), `ADMIN_USERNAME` +
-   `ADMIN_PASSWORD` (to enable `/admin`), and optionally `TELEGRAM_BOT_TOKEN`
-   to also enable the Telegram bot.
+2. (Optional) Add a **PostgreSQL** plugin to the project (New → Database →
+   PostgreSQL). Railway automatically injects `DATABASE_URL` into your
+   service — no manual wiring needed.
+3. (Optional) In the service's **Variables** tab, set `ADMIN_USERNAME` +
+   `ADMIN_PASSWORD` (to enable `/admin`) and `TELEGRAM_BOT_TOKEN` (to enable
+   the Telegram bot).
 4. Railway assigns a public URL automatically for the web chat UI; the
    Telegram bot (if enabled) runs polling in the same process — no inbound
    domain/webhook needed.
 
-Alternatively, with the Railway CLI and an **account-level** API token
-(Account Settings → Tokens — not a project token, since the project doesn't
-exist yet):
+No other configuration is required — there is no AI API key to set.
 
-```bash
-railway login --token <ACCOUNT_TOKEN>
-railway init
-railway add --plugin postgresql
-railway variables --set GOOGLE_API_KEY=<your-key> --set TELEGRAM_BOT_TOKEN=123:abc --set ADMIN_USERNAME=admin --set ADMIN_PASSWORD=<pick-one>
-railway up
-```
-
-**Note:** This is an AI assistance tool. Always verify placarding decisions
-against the actual BOL, SDS, and current 49 CFR Part 172 — final
-responsibility lies with the shipper/carrier.
+**Note:** This is an automated rule-based assistance tool. Always verify
+placarding decisions against the actual BOL, SDS, and current 49 CFR
+Part 172 — final responsibility lies with the shipper/carrier.

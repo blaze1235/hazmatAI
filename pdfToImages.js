@@ -28,6 +28,32 @@ class NodeCanvasFactory {
   }
 }
 
+async function pdfToText(buffer, maxPages = 5) {
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buffer),
+    disableFontFace: true,
+    standardFontDataUrl: STANDARD_FONT_DATA_URL,
+  });
+  const pdf = await loadingTask.promise;
+  const pageCount = Math.min(pdf.numPages, maxPages);
+  let text = '';
+
+  for (let i = 1; i <= pageCount; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    let line = '';
+    for (const item of content.items) {
+      line += item.str;
+      line += item.hasEOL ? '\n' : ' ';
+    }
+    text += line + '\n';
+    page.cleanup();
+  }
+
+  await pdf.destroy();
+  return { text, numPages: pdf.numPages, pagesRead: pageCount };
+}
+
 async function pdfToImages(buffer, maxPages = 3) {
   const canvasFactory = new NodeCanvasFactory();
   const loadingTask = pdfjsLib.getDocument({
@@ -57,4 +83,4 @@ async function pdfToImages(buffer, maxPages = 3) {
   return images;
 }
 
-module.exports = { pdfToImages };
+module.exports = { pdfToImages, pdfToText };

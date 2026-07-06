@@ -6,7 +6,6 @@ const previewRow = document.getElementById('preview-row');
 const sendBtn = document.getElementById('send-btn');
 
 let pendingFiles = [];
-let history = [];
 
 function getSessionId() {
   let id = localStorage.getItem('placardbot_session_id');
@@ -88,18 +87,11 @@ form.addEventListener('submit', async (e) => {
   if (!text && pendingFiles.length === 0) return;
 
   const attachments = [];
-  const userParts = [];
-  if (text) userParts.push({ text });
-
   for (const file of pendingFiles) {
     if (isPdf(file)) {
       attachments.push({ kind: 'pdf', name: file.name });
-      userParts.push({ text: `[Attached PDF: ${file.name}]` });
     } else {
-      const url = await fileToDataUrl(file);
-      attachments.push({ kind: 'image', url });
-      const [, mediaType, base64] = url.match(/^data:(.+);base64,(.*)$/);
-      userParts.push({ inlineData: { mimeType: mediaType, data: base64 } });
+      attachments.push({ kind: 'image', url: await fileToDataUrl(file) });
     }
   }
 
@@ -108,7 +100,6 @@ form.addEventListener('submit', async (e) => {
   const formData = new FormData();
   formData.append('message', text);
   formData.append('sessionId', sessionId);
-  formData.append('history', JSON.stringify(history));
   for (const file of pendingFiles) formData.append('files', file);
 
   textInput.value = '';
@@ -131,8 +122,6 @@ form.addEventListener('submit', async (e) => {
     }
 
     addMessage('bot', data.reply);
-    history.push({ role: 'user', parts: userParts });
-    history.push({ role: 'model', parts: [{ text: data.reply }] });
   } catch (err) {
     loadingEl.remove();
     addMessage('bot', '⚠️ Network error. Please try again.');
@@ -141,4 +130,4 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-addMessage('bot', "👋 I'm PlacardBot, your DOT/PHMSA HAZMAT placarding assistant.\n\nSend me a Bill of Lading photo or PDF, or describe a shipment's UN number and quantity, and I'll tell you exactly which placards are required.");
+addMessage('bot', "👋 I'm PlacardBot, your DOT/PHMSA HAZMAT placarding assistant.\n\nSend me a Bill of Lading photo or PDF, or just type the shipment (e.g. \"UN1203 gasoline, 8500 lbs\"), and I'll tell you which placards 49 CFR Part 172 requires.\n\nEverything runs locally on the server — OCR + the 172.504 placarding tables. No AI, no API keys.");

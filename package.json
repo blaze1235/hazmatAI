@@ -11,12 +11,12 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
     "@napi-rs/canvas": "^1.0.2",
     "express": "^4.21.2",
     "multer": "^2.0.1",
     "node-telegram-bot-api": "^1.1.2",
     "pdfjs-dist": "^3.11.174",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "tesseract.js": "^7.0.0"
   }
 }

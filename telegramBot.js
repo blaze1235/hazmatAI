@@ -1,17 +1,16 @@
 const { TelegramBot } = require('node-telegram-bot-api');
-const { pdfToImages } = require('./pdfToImages');
+const { analyzeShipment } = require('./analyzer');
 const { logAnalysis } = require('./db');
 
-const MAX_HISTORY = 16;
 const TELEGRAM_MSG_LIMIT = 4000;
 const MEDIA_GROUP_DEBOUNCE_MS = 1500;
-const MAX_PDF_BYTES = 15 * 1024 * 1024;
+const MAX_FILE_BYTES = 15 * 1024 * 1024;
 
 const WELCOME_TEXT =
   "👋 I'm PlacardBot, your DOT/PHMSA HAZMAT placarding assistant.\n\n" +
-  "Send me a Bill of Lading photo or PDF (or a few, for the same shipment), " +
-  "or just type the UN number/quantity, and I'll tell you exactly which " +
-  "placards are required under 49 CFR Part 172.";
+  'Send me a Bill of Lading photo or PDF (or a few, for the same shipment), ' +
+  "or just type the UN number and weight (e.g. \"UN1203 8500 lbs\"), and I'll " +
+  'tell you which placards are required under 49 CFR Part 172.';
 
 function chunkText(text, size = TELEGRAM_MSG_LIMIT) {
   const chunks = [];
@@ -21,18 +20,12 @@ function chunkText(text, size = TELEGRAM_MSG_LIMIT) {
   return chunks.length ? chunks : [text];
 }
 
-function startTelegramBot({ genAI, model, systemPrompt }) {
+function startTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return null;
 
   const bot = new TelegramBot(token, { polling: true });
-  const histories = new Map();
   const mediaGroups = new Map();
-
-  function getHistory(chatId) {
-    if (!histories.has(chatId)) histories.set(chatId, []);
-    return histories.get(chatId);
-  }
 
   async function downloadFileAsBuffer(fileId) {
     const url = await bot.getFileLink(fileId);
@@ -40,28 +33,11 @@ function startTelegramBot({ genAI, model, systemPrompt }) {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  async function respond(chatId, googleContent, meta = {}) {
-    const history = getHistory(chatId);
-    const msgModel = genAI.getGenerativeModel({ model, systemInstruction: systemPrompt });
-    const chatHistory = history.map((msg) => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: msg.parts,
-    }));
-
-    const messageText = googleContent.filter((p) => p.text).map((p) => p.text).join(' ');
-
+  // files: [{ mimetype, buffer }]
+  async function respond(chatId, message, files, meta = {}) {
     try {
       await bot.sendChatAction(chatId, 'typing');
-      const chat = msgModel.startChat({ history: chatHistory });
-      const response = await chat.sendMessage(googleContent);
-      const reply = response.response.text();
-
-      history.push({ role: 'user', parts: googleContent });
-      history.push({ role: 'model', parts: [{ text: reply }] });
-
-      if (history.length > MAX_HISTORY) {
-        history.splice(0, history.length - MAX_HISTORY);
-      }
+      const { reply } = await analyzeShipment({ message, files });
 
       for (const chunk of chunkText(reply)) {
         await bot.sendMessage(chatId, chunk);
@@ -70,8 +46,8 @@ function startTelegramBot({ genAI, model, systemPrompt }) {
       logAnalysis({
         source: 'telegram',
         sessionId: String(chatId),
-        message: messageText,
-        fileCount: meta.fileCount || 0,
+        message,
+        fileCount: files.length,
         fileTypes: meta.fileTypes || null,
         reply,
       });
@@ -81,8 +57,8 @@ function startTelegramBot({ genAI, model, systemPrompt }) {
       logAnalysis({
         source: 'telegram',
         sessionId: String(chatId),
-        message: messageText,
-        fileCount: meta.fileCount || 0,
+        message,
+        fileCount: files.length,
         fileTypes: meta.fileTypes || null,
         error: err.message,
       });
@@ -99,32 +75,24 @@ function startTelegramBot({ genAI, model, systemPrompt }) {
       const caption = msg.caption || '';
       const largest = msg.photo[msg.photo.length - 1];
       const buffer = await downloadFileAsBuffer(largest.file_id);
-      const image = { mimeType: 'image/jpeg', data: buffer.toString('base64') };
+      const file = { mimetype: 'image/jpeg', buffer };
       const groupId = msg.media_group_id;
 
       if (groupId) {
         if (!mediaGroups.has(groupId)) {
-          mediaGroups.set(groupId, { chatId, caption: '', photos: [] });
+          mediaGroups.set(groupId, { chatId, caption: '', files: [] });
         }
         const group = mediaGroups.get(groupId);
-        group.photos.push(image);
+        group.files.push(file);
         if (caption) group.caption = caption;
 
         clearTimeout(group.timer);
         group.timer = setTimeout(() => {
           mediaGroups.delete(groupId);
-          const content = [];
-          if (group.caption) content.push({ text: group.caption });
-          for (const photo of group.photos) {
-            content.push({ inlineData: photo });
-          }
-          respond(group.chatId, content, { fileCount: group.photos.length, fileTypes: 'image/jpeg' });
+          respond(group.chatId, group.caption, group.files, { fileTypes: 'image/jpeg' });
         }, MEDIA_GROUP_DEBOUNCE_MS);
       } else {
-        const content = [];
-        if (caption) content.push({ text: caption });
-        content.push({ inlineData: image });
-        await respond(chatId, content, { fileCount: 1, fileTypes: 'image/jpeg' });
+        await respond(chatId, caption, [file], { fileTypes: 'image/jpeg' });
       }
     } catch (err) {
       console.error('Telegram photo handling error:', err);
@@ -138,30 +106,22 @@ function startTelegramBot({ genAI, model, systemPrompt }) {
     const caption = msg.caption || '';
 
     try {
-      if (doc.file_size && doc.file_size > MAX_PDF_BYTES) {
+      if (doc.file_size && doc.file_size > MAX_FILE_BYTES) {
         await bot.sendMessage(chatId, '⚠️ That file is too large (max 15MB).');
         return;
       }
 
-      const buffer = await downloadFileAsBuffer(doc.file_id);
-      const content = [];
-      let fileTypes;
-
-      if (doc.mime_type === 'application/pdf') {
-        const pages = await pdfToImages(buffer);
-        if (caption) content.push({ text: caption });
-        for (const page of pages) content.push({ inlineData: page });
-        fileTypes = `pdf(${pages.length}p)`;
-      } else if (doc.mime_type && doc.mime_type.startsWith('image/')) {
-        if (caption) content.push({ text: caption });
-        content.push({ inlineData: { mimeType: doc.mime_type, data: buffer.toString('base64') } });
-        fileTypes = doc.mime_type;
-      } else {
+      const isPdf = doc.mime_type === 'application/pdf';
+      const isImage = doc.mime_type && doc.mime_type.startsWith('image/');
+      if (!isPdf && !isImage) {
         await bot.sendMessage(chatId, '⚠️ Unsupported file type. Please send a photo or PDF of the BOL.');
         return;
       }
 
-      await respond(chatId, content, { fileCount: 1, fileTypes });
+      const buffer = await downloadFileAsBuffer(doc.file_id);
+      await respond(chatId, caption, [{ mimetype: doc.mime_type, buffer }], {
+        fileTypes: isPdf ? 'pdf' : doc.mime_type,
+      });
     } catch (err) {
       console.error('Telegram document handling error:', err);
       await bot.sendMessage(chatId, '⚠️ Could not process that file. Please try again.');
@@ -170,7 +130,7 @@ function startTelegramBot({ genAI, model, systemPrompt }) {
 
   bot.on('message', async (msg) => {
     if (msg.photo || msg.document || !msg.text || msg.text.startsWith('/')) return;
-    await respond(msg.chat.id, [{ text: msg.text }]);
+    await respond(msg.chat.id, msg.text, []);
   });
 
   bot.on('polling_error', (err) => console.error('Telegram polling error:', err.message));
