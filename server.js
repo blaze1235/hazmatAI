@@ -56,23 +56,7 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
       return res.status(400).json({ error: 'Send a message and/or at least one BOL photo.' });
     }
 
-    const chatHistory = history.map((msg) => ({
-      role: msg.role === 'user' ? 'user' : 'model',
-      parts: msg.content.map((part) => {
-        if (part.type === 'text') return { text: part.text };
-        if (part.type === 'image') {
-          return {
-            inlineData: {
-              mimeType: part.source.media_type,
-              data: part.source.data,
-            },
-          };
-        }
-      }),
-    }));
-
-    const chat = model.startChat({ history: chatHistory });
-    const response = await chat.sendMessage(content);
+    const response = await model.generateContent(content);
     const reply = response.response.text();
 
     res.json({ reply });
