@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "express": "^4.21.2",
-    "multer": "^2.0.1"
+    "multer": "^2.0.1",
+    "node-telegram-bot-api": "^1.1.2"
   }
 }

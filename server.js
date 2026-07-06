@@ -3,6 +3,7 @@ const multer = require('multer');
 const Anthropic = require('@anthropic-ai/sdk');
 const path = require('path');
 const SYSTEM_PROMPT = require('./systemPrompt');
+const { startTelegramBot } = require('./telegramBot');
 
 const app = express();
 const upload = multer({
@@ -80,3 +81,11 @@ app.post('/api/chat', upload.array('images', 6), async (req, res) => {
 app.listen(PORT, () => {
   console.log(`PlacardBot listening on port ${PORT}`);
 });
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  if (anthropic) {
+    startTelegramBot({ anthropic, model: MODEL, systemPrompt: SYSTEM_PROMPT });
+  } else {
+    console.warn('TELEGRAM_BOT_TOKEN is set but ANTHROPIC_API_KEY is missing; Telegram bot not started.');
+  }
+}
