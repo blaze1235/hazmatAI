@@ -11,7 +11,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
+    "@google/generative-ai": "^0.21.0",
     "express": "^4.21.2",
     "multer": "^2.0.1",
     "node-telegram-bot-api": "^1.1.2"
