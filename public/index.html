@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PlacardBot — HAZMAT Compliance Assistant</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🚛</span>
+      <div>
+        <h1>PlacardBot</h1>
+        <p>DOT / PHMSA HAZMAT Placarding Assistant</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="chat-wrap">
+    <div id="messages" class="messages"></div>
+
+    <form id="chat-form" class="composer">
+      <div id="preview-row" class="preview-row"></div>
+      <div class="composer-row">
+        <label class="attach-btn" for="file-input" title="Attach BOL photo(s)">📎</label>
+        <input id="file-input" type="file" accept="image/*" multiple hidden />
+        <textarea id="text-input" placeholder="Describe the shipment or attach a BOL photo…" rows="1"></textarea>
+        <button type="submit" id="send-btn">Send</button>
+      </div>
+    </form>
+    <p class="disclaimer">This is an AI assistance tool. Always verify with the actual BOL, SDS, and your HAZMAT training. Final responsibility lies with the shipper/carrier.</p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
