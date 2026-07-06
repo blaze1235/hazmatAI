@@ -23,9 +23,9 @@
     <form id="chat-form" class="composer">
       <div id="preview-row" class="preview-row"></div>
       <div class="composer-row">
-        <label class="attach-btn" for="file-input" title="Attach BOL photo(s)">📎</label>
-        <input id="file-input" type="file" accept="image/*" multiple hidden />
-        <textarea id="text-input" placeholder="Describe the shipment or attach a BOL photo…" rows="1"></textarea>
+        <label class="attach-btn" for="file-input" title="Attach BOL photo(s) or PDF">📎</label>
+        <input id="file-input" type="file" accept="image/*,application/pdf" multiple hidden />
+        <textarea id="text-input" placeholder="Describe the shipment or attach a BOL photo/PDF…" rows="1"></textarea>
         <button type="submit" id="send-btn">Send</button>
       </div>
     </form>

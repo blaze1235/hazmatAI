@@ -8,6 +8,16 @@ const sendBtn = document.getElementById('send-btn');
 let pendingFiles = [];
 let history = [];
 
+function getSessionId() {
+  let id = localStorage.getItem('placardbot_session_id');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('placardbot_session_id', id);
+  }
+  return id;
+}
+const sessionId = getSessionId();
+
 function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -17,14 +27,25 @@ function fileToDataUrl(file) {
   });
 }
 
+function isPdf(file) {
+  return file.type === 'application/pdf';
+}
+
 fileInput.addEventListener('change', async () => {
   pendingFiles = Array.from(fileInput.files).slice(0, 6);
   previewRow.innerHTML = '';
   for (const file of pendingFiles) {
-    const url = await fileToDataUrl(file);
-    const img = document.createElement('img');
-    img.src = url;
-    previewRow.appendChild(img);
+    if (isPdf(file)) {
+      const badge = document.createElement('div');
+      badge.className = 'file-badge';
+      badge.textContent = `📄 ${file.name}`;
+      previewRow.appendChild(badge);
+    } else {
+      const url = await fileToDataUrl(file);
+      const img = document.createElement('img');
+      img.src = url;
+      previewRow.appendChild(img);
+    }
   }
 });
 
@@ -40,14 +61,21 @@ textInput.addEventListener('keydown', (e) => {
   }
 });
 
-function addMessage(role, text, imageUrls = []) {
+function addMessage(role, text, attachments = []) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   div.textContent = text;
-  for (const url of imageUrls) {
-    const img = document.createElement('img');
-    img.src = url;
-    div.appendChild(img);
+  for (const att of attachments) {
+    if (att.kind === 'pdf') {
+      const badge = document.createElement('div');
+      badge.className = 'file-badge';
+      badge.textContent = `📄 ${att.name}`;
+      div.appendChild(badge);
+    } else {
+      const img = document.createElement('img');
+      img.src = att.url;
+      div.appendChild(img);
+    }
   }
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -59,21 +87,29 @@ form.addEventListener('submit', async (e) => {
   const text = textInput.value.trim();
   if (!text && pendingFiles.length === 0) return;
 
-  const imageUrls = await Promise.all(pendingFiles.map(fileToDataUrl));
-  addMessage('user', text, imageUrls);
+  const attachments = [];
+  const userParts = [];
+  if (text) userParts.push({ text });
+
+  for (const file of pendingFiles) {
+    if (isPdf(file)) {
+      attachments.push({ kind: 'pdf', name: file.name });
+      userParts.push({ text: `[Attached PDF: ${file.name}]` });
+    } else {
+      const url = await fileToDataUrl(file);
+      attachments.push({ kind: 'image', url });
+      const [, mediaType, base64] = url.match(/^data:(.+);base64,(.*)$/);
+      userParts.push({ inlineData: { mimeType: mediaType, data: base64 } });
+    }
+  }
+
+  addMessage('user', text, attachments);
 
   const formData = new FormData();
   formData.append('message', text);
+  formData.append('sessionId', sessionId);
   formData.append('history', JSON.stringify(history));
-  for (const file of pendingFiles) formData.append('images', file);
-
-  const userContent = [];
-  if (text) userContent.push({ type: 'text', text });
-  for (let i = 0; i < pendingFiles.length; i++) {
-    const dataUrl = imageUrls[i];
-    const [, mediaType, base64] = dataUrl.match(/^data:(.+);base64,(.*)$/);
-    userContent.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } });
-  }
+  for (const file of pendingFiles) formData.append('files', file);
 
   textInput.value = '';
   textInput.style.height = 'auto';
@@ -95,8 +131,8 @@ form.addEventListener('submit', async (e) => {
     }
 
     addMessage('bot', data.reply);
-    history.push({ role: 'user', content: userContent });
-    history.push({ role: 'assistant', content: [{ type: 'text', text: data.reply }] });
+    history.push({ role: 'user', parts: userParts });
+    history.push({ role: 'model', parts: [{ text: data.reply }] });
   } catch (err) {
     loadingEl.remove();
     addMessage('bot', '⚠️ Network error. Please try again.');
@@ -105,4 +141,4 @@ form.addEventListener('submit', async (e) => {
   }
 });
 
-addMessage('bot', "👋 I'm PlacardBot, your DOT/PHMSA HAZMAT placarding assistant.\n\nSend me a Bill of Lading photo, or describe a shipment's UN number and quantity, and I'll tell you exactly which placards are required.");
+addMessage('bot', "👋 I'm PlacardBot, your DOT/PHMSA HAZMAT placarding assistant.\n\nSend me a Bill of Lading photo or PDF, or describe a shipment's UN number and quantity, and I'll tell you exactly which placards are required.");
